@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    
+</head>
+<body class="m-12">
+   <div class="flex justify-center">
+    <div class="flex-col justify-center m-3 w-full">
+        <textarea class="border border-black mb-6 w-full" name="offer" id="offerText" rows="6"></textarea>
+        <button class="bg-blue-300 w-full mb-12" onclick="createOffer()">Create Offer</button>
+    </div>
+    <div class="flex-col justify-center m-3 w-full">
+        <textarea name="answer" class="border border-black mb-6 w-full" id="answerText" rows="6"></textarea>
+        <button class="bg-blue-300 w-full mb-12"onclick="createAnswer()">Create Answer</button>
+    </div>
+  
+</div>
+<button class="bg-red-400 px-12 block ml-3  mb-12"onclick="addAnswer()">Add Answer</button>
+
+<input type="file" class="block ml-3 mb-6" id="fileinput" onchange="handleChange()">
+
+<button onclick="sendFile()"  class="bg-red-400 px-12 block ml-3" id="sendButton" disabled>Send</button>
+
+<script src="script.js"></script>
+</body>
+</html>
