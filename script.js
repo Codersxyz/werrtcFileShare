@@ -4,13 +4,15 @@ let buffer = [];
 let fileName;
 
 let onOpen  = e => console.log("Data Channel Opened");
+let packetCount = 0; // Counter for received packets
+const packetsToReceive = 1000; // Number of packets to wait for before sending ACK
+
 let onMessage = e => {
     if (typeof e.data === "string" && e.data.startsWith("FILE_NAME:")) {
         fileName = e.data.split("FILE_NAME:")[1];
         console.log(`Receiving file: ${fileName}`);
         // Initialize buffer or any other necessary setup for receiving the file
-    }
-    else if (typeof e.data === "string" && e.data === "Done") {
+    } else if (typeof e.data === "string" && e.data === "Done") {
         console.log("Done");
 
         const file = new Blob(buffer);
@@ -23,14 +25,20 @@ let onMessage = e => {
         URL.revokeObjectURL(url);
 
         buffer = [];
-
-    } 
-    else {
+        packetCount = 0; // Reset packet count for next transfer
+    } else {
         console.log("received");
         buffer.push(e.data);
-        datachannel.send("ACK");
+        packetCount++;
+
+        // Send ACK after receiving the specified number of packets
+        if (packetCount >= packetsToReceive) {
+            datachannel.send("ACK");
+            packetCount = 0; // Reset packet count after sending ACK
+        }
     }
-}
+};
+
 
 
 peerConnection.ondatachannel = (e) => {
@@ -94,43 +102,6 @@ let handleChange = () => {
 }
 
 
-// let sendFile = async () => {
-//     const file = fileinput.files[0];
-
-//     if (!file) {
-//         console.log("No file selected");
-//         return;
-//     }
-
-//     const buffer = await file.arrayBuffer();
-//     const chunkSize = 16 * 1024; // Adjust as needed
-//     let offset = 0;
-
-//     // Set a low threshold for buffered amount
-//     datachannel.bufferedAmountLowThreshold = 1024 * 1024; // Example: 1MB threshold
-
-//     const sendChunk = () => {
-//         // Check if we have more data to send
-//         if (offset < buffer.byteLength) {
-//             const chunk = buffer.slice(offset, offset + chunkSize);
-//             datachannel.send(chunk);
-//             offset += chunkSize;
-//         } else {
-//             // Send "Done" message to signal that all chunks have been sent
-//             datachannel.send("Done");
-//         }
-//     };
-
-//     // Listen for the 'bufferedamountlow' event
-//     datachannel.onbufferedamountlow = () => {
-//         sendChunk(); // Send the next chunk when the buffer is low
-//     };
-
-//     // Start sending the first chunk
-//     sendChunk();
-// };
-
-
 
 let sendFile = async () => {
     const file = fileinput.files[0];
@@ -143,45 +114,46 @@ let sendFile = async () => {
     const buffer = await file.arrayBuffer();
     const chunkSize = 16 * 1024; // Adjust as needed
     let offset = 0;
+    const packetsToSend = 1000; // Number of packets to send before waiting for ACK
+    let packetCount = 0; // Counter for sent packets
 
     // Send the file name first
     const fileNameMessage = `FILE_NAME:${file.name}`;
     datachannel.send(fileNameMessage);
 
-    // Function to send chunks
-    let promise = new Promise((resolve, reject) => {
-        const sendChunk = () => {
-            // Check if we have more data to send
-            if (offset < buffer.byteLength) {
-                const chunk = buffer.slice(offset, offset + chunkSize);
-                datachannel.send(chunk);
-                offset += chunkSize;
-            } else {
-                // Send "Done" message to signal that all chunks have been sent
-                datachannel.send("Done");
-                console.log('All chunks have been sent!');
-                resolve(); // Resolve the promise when all chunks are sent
-            }
-        };
+    // Store the original onMessage handler
+    const originalOnMessage = datachannel.onmessage;
 
-        const waitForAck = () => {
-            datachannel.onmessage = e => {
-                if (e.data === 'ACK') {
-                    sendChunk();
-                } else if (e.data === 'Error') {
-                    reject(new Error('Error during chunk transfer'));
-                }
-            };
-        };
+    const sendChunks = () => {
+        while (packetCount < packetsToSend && offset < buffer.byteLength) {
+            const chunk = buffer.slice(offset, offset + chunkSize);
+            datachannel.send(chunk);
+            offset += chunkSize;
+            packetCount++;
+        }
 
-        // Start sending the first chunk
-        sendChunk(); // Send the first chunk immediately
-        waitForAck();
-    });
+        // Check if all chunks have been sent
+        if (offset >= buffer.byteLength) {
+            datachannel.send("Done");
+            console.log('All chunks have been sent!');
+            datachannel.onmessage = originalOnMessage; // Reset the onmessage handler
+        } else {
+            // Wait for ACK for the sent packets
+            console.log(`Waiting for ACK...`);
+            datachannel.onmessage = waitForAck;
+        }
+    };
 
-    promise.then(e => {
-        datachannel.onmessage = onMessage;
-        console.log("File Sent");
-    })
+    const waitForAck = (e) => {
+        if (e.data === 'ACK') {
+            packetCount = 0; // Reset packet count for the next batch
+            sendChunks(); // Send the next batch of chunks
+        } else if (e.data === 'Error') {
+            console.error('Error during chunk transfer');
+            datachannel.onmessage = originalOnMessage; // Reset handler on error
+        }
+    };
+
+    // Start sending chunks
+    sendChunks();
 };
-
