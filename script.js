@@ -7,16 +7,17 @@ let offset = 0;
 let fileSending = false;
 
 let onOpen  = e => console.log("Data Channel Opened");
-let packetCount = 0; // Counter for received packets
-const packetsToReceive = 1000; // Number of packets to wait for before sending ACK
+
 
 let onMessage = e => {
     if (typeof e.data === "string" && e.data.startsWith("FILE_NAME:")) {
         fileName = e.data.split("FILE_NAME:")[1];
         console.log(`Receiving file: ${fileName}`);
+        console.time("Start");
         // Initialize buffer or any other necessary setup for receiving the file
     } else if (typeof e.data === "string" && e.data === "Done") {
         console.log("Done");
+        console.timeEnd('Start');
 
         const file = new Blob(buffer);
         const url = URL.createObjectURL(file);
@@ -28,18 +29,12 @@ let onMessage = e => {
         URL.revokeObjectURL(url);
 
         buffer = [];
-        packetCount = 0; // Reset packet count for next transfer
+
     } else {
         console.log("received");
         buffer.push(e.data);
-        packetCount++;
-
-        // Send ACK after receiving the specified number of packets
-        if (packetCount >= packetsToReceive) {
-            datachannel.send("ACK");
-            packetCount = 0; // Reset packet count after sending ACK
-        }
     }
+        // Send ACK after receiving the specified number of packets    
 };
 
 
@@ -58,7 +53,7 @@ let createOffer = async () => {
 
     datachannel.onopen = onOpen
     datachannel.onmessage = onMessage
-    // datachannel.bufferedAmountLowThreshold = 1024;
+    datachannel.bufferedAmountLowThreshold = 600*1024*16;
 
 
     peerConnection.onicecandidate = async (event) => {
@@ -123,22 +118,44 @@ let sendFile = async () => {
     datachannel.send(fileNameMessage);
 
     fileSending = true;
-    console.log("Hello")
+
+    
+    console.log("Start Sending");
+
+
+    for (let i = 0; i < 1023 && offset < buffered.byteLength; i++) {
+        console.log("First for loop");
+        const chunk = buffered.slice(offset, offset + chunkSize);
+        datachannel.send(chunk);
+        offset += chunkSize;
+    }
     // Store the original onMessage handler
     // const originalOnMessage = datachannel.onmessage;
 
+    if (offset >= buffered.byteLength) {
+        offset = 0;
+        fileSending = false;
+        datachannel.send("Done");
+        console.log('All chunks have been sent!');
+    }
+
     datachannel.onbufferedamountlow = (event) => {
-        console.log("Hello 2")
-        if (fileSending && offset < buffered.byteLength) {
-            const chunk = buffered.slice(offset, offset + chunkSize);
-            datachannel.send(chunk);
-            offset += chunkSize;
-        }
-        else if (offset >= buffered.byteLength) {
-            offset = 0;
-            fileSending = false;
-            datachannel.send("Done");
-            console.log('All chunks have been sent!');
+        console.log("Send Buffer Low");
+
+        if (fileSending) {
+            for (let i = 0; i < 400 && offset < buffered.byteLength; i++) {
+                const chunk = buffered.slice(offset, offset + chunkSize);
+                datachannel.send(chunk);
+                offset += chunkSize;
+            }
+            
+        
+            if (offset >= buffered.byteLength) {
+                offset = 0;
+                fileSending = false;
+                datachannel.send("Done");
+                console.log('All chunks have been sent!');
+            }
         }
     }
             
